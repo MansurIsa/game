@@ -3,551 +3,587 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Road + Potholes + Trees</title>
+  <title>Train Runner</title>
   <style>
-    html, body { margin:0; height:100%; overflow:hidden; background:#0b0f14; }
-    #hud {
-      position:fixed; left:12px; top:12px; right:12px;
+    html,body{margin:0;height:100%;overflow:hidden;background:#8fd3ff}
+    canvas{display:block}
+
+    /* Video kimi top HUD */
+    #topHud{
+      position:fixed; left:0; right:0; top:0;
+      height:64px; pointer-events:none;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      color:#e8eef7; font-size:14px; line-height:1.35;
-      display:flex; gap:12px; align-items:flex-start; justify-content:space-between;
-      pointer-events:none;
+      color:#0b1220;
     }
-    .panel {
-      background: rgba(0,0,0,.35);
-      border: 1px solid rgba(255,255,255,.12);
-      border-radius: 12px;
-      padding: 10px 12px;
-      backdrop-filter: blur(6px);
-      box-shadow: 0 8px 24px rgba(0,0,0,.35);
-      max-width: 560px;
+    #barWrap{
+      position:absolute; left:18px; right:18px; top:10px; height:10px;
+      border-radius:999px;
+      border:2px solid rgba(0,0,0,.25);
+      background:rgba(255,255,255,.45);
+      overflow:hidden;
+      box-shadow: 0 6px 16px rgba(0,0,0,.12);
     }
-    #btnAudio {
+    #barFill{
+      height:100%; width:18%;
+      background:linear-gradient(90deg,#ffd34d,#ff9f1c);
+      border-radius:999px;
+    }
+    #hudRow{
+      position:absolute; left:18px; right:18px; top:28px;
+      display:flex; justify-content:space-between; align-items:center;
+      font-weight:700; font-size:12px;
+      text-shadow: 0 1px 0 rgba(255,255,255,.6);
+    }
+    #centerHint{
+      position:absolute; left:50%; transform:translateX(-50%);
+      top:22px; text-align:center; font-weight:900;
+      letter-spacing:.6px;
+    }
+    #hintCircle{
+      width:34px; height:34px; border-radius:50%;
+      background:rgba(255,255,255,.55);
+      border:2px solid rgba(0,0,0,.18);
+      display:flex; align-items:center; justify-content:center;
+      margin:0 auto 2px auto;
+    }
+    #hintTxt{ font-size:10px; opacity:.9; }
+
+    /* speed lines overlay (video kimi) */
+    #fx{
+      position:fixed; inset:0; pointer-events:none;
+      background:
+        radial-gradient(ellipse at center, rgba(255,255,255,0) 0%, rgba(255,255,255,0) 55%, rgba(255,255,255,.08) 100%);
+      mix-blend-mode: screen;
+    }
+    .streak{
+      position:absolute; width:2px; height:120px;
+      background:rgba(255,255,255,.85);
+      filter: blur(.2px);
+      transform: skewX(-18deg);
+      opacity:.9;
+    }
+
+    #btnAudio{
+      position:fixed; right:12px; bottom:12px;
       pointer-events:auto;
-      cursor:pointer;
-      user-select:none;
-      display:inline-flex; align-items:center; gap:8px;
+      cursor:pointer; user-select:none;
+      display:inline-flex; gap:8px; align-items:center;
       padding:10px 12px; border-radius:12px;
-      background: rgba(255,255,255,.08);
-      border: 1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.75);
+      border:1px solid rgba(0,0,0,.12);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
     }
-    #btnAudio:active { transform: translateY(1px); }
-    #status { margin-top: 6px; opacity: .9; }
-    canvas { display:block; }
+    #msg{
+      position:fixed; left:12px; bottom:12px;
+      padding:10px 12px; border-radius:12px;
+      background:rgba(255,255,255,.55);
+      border:1px solid rgba(0,0,0,.10);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      font-size:13px; color:#0b1220;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
+      pointer-events:none;
+      max-width: 66vw;
+    }
   </style>
 </head>
 <body>
-  <div id="hud">
-    <div class="panel">
-      <div><b>Kontrol</b>: ↑/Swipe up = tullan • ↓/Swipe down = əyil • ↓ burax = qalx</div>
-      <div id="status">Çuxura (yamaya) tullanıb keçməsən sürət zəifləyəcək.</div>
+  <div id="topHud">
+    <div id="barWrap"><div id="barFill"></div></div>
+    <div id="hudRow">
+      <div id="lvl">LEVEL 1</div>
+      <div id="goal">GOAL: 2200m</div>
     </div>
-    <div id="btnAudio" class="panel" title="Mobil brauzerdə səs üçün lazımdır">
-      🔊 <span id="audioState">Səsi aktiv et</span>
+
+    <div id="centerHint">
+      <div id="hintCircle">⬆️</div>
+      <div id="hintTxt">JUMP</div>
     </div>
   </div>
 
-  <script type="module">
-    import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+  <div id="fx"></div>
 
-    // ---------- Renderer / Scene ----------
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    renderer.setSize(innerWidth, innerHeight);
-    document.body.appendChild(renderer.domElement);
+  <div id="msg">←/→ (A/D) lane • ↑/Space jump • Mobil: swipe left/right/up • Qatarın üstünə düş, üstündə qaç.</div>
+  <div id="btnAudio">🔊 <span id="audioState">Səsi aktiv et</span></div>
 
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x0b0f14, 14, 110);
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 
-    const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 260);
-    camera.position.set(0, 4.7, 10);
-    camera.lookAt(0, 1.1, 0);
-
-    scene.add(new THREE.HemisphereLight(0xbdd8ff, 0x141821, 0.85));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.85);
-    dir.position.set(10, 12, 8);
-    scene.add(dir);
-
-    // ---------- Road ----------
-    const ROAD_W = 14;
-    const roadGeo = new THREE.PlaneGeometry(ROAD_W, 380, 1, 1);
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x141b24, roughness: 0.97, metalness: 0.0 });
-    const road = new THREE.Mesh(roadGeo, roadMat);
-    road.rotation.x = -Math.PI / 2;
-    road.position.z = -160;
-    scene.add(road);
-
-    const lineMat = new THREE.MeshStandardMaterial({ color: 0x26384d, roughness: 0.85 });
-    function addLine(x) {
-      const g = new THREE.BoxGeometry(0.08, 0.02, 340);
-      const m = new THREE.Mesh(g, lineMat);
-      m.position.set(x, 0.011, -160);
-      scene.add(m);
+/* --------------------------- FX streaks --------------------------- */
+const fx = document.getElementById("fx");
+const streaks=[];
+function makeStreak(){
+  const s=document.createElement("div");
+  s.className="streak";
+  s.style.left=(Math.random()*100)+"%";
+  s.style.top=(-140-Math.random()*240)+"px";
+  s.style.height=(80+Math.random()*160)+"px";
+  s.style.opacity=(0.35+Math.random()*0.55);
+  fx.appendChild(s);
+  streaks.push(s);
+}
+for(let i=0;i<18;i++) makeStreak();
+function updateStreaks(speed){
+  for(const s of streaks){
+    const top=parseFloat(s.style.top);
+    const ny=top + (7 + speed*0.35);
+    s.style.top = ny+"px";
+    if(ny>innerHeight+200){
+      s.style.left=(Math.random()*100)+"%";
+      s.style.top=(-200-Math.random()*240)+"px";
+      s.style.height=(80+Math.random()*160)+"px";
+      s.style.opacity=(0.35+Math.random()*0.55);
     }
-    addLine(-ROAD_W/2 + 0.6);
-    addLine( ROAD_W/2 - 0.6);
+  }
+}
 
-    // ---------- Audio ----------
-    let audioCtx = null;
-    let audioEnabled = false;
+/* --------------------------- Renderer/Scene --------------------------- */
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
 
-    function ensureAudio() {
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      if (audioCtx.state === "suspended") audioCtx.resume();
-      audioEnabled = true;
-      document.getElementById("audioState").textContent = "Səs aktivdir";
-    }
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x8fd3ff, 28, 170);
 
-    function beepOk() {
-      if (!audioEnabled || !audioCtx) return;
-      const t = audioCtx.currentTime;
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      o.type = "square";
-      o.frequency.setValueAtTime(760, t);
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-      o.connect(g).connect(audioCtx.destination);
-      o.start(t);
-      o.stop(t + 0.14);
-    }
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 260);
+camera.position.set(0, 5.2, 11);
 
-    function thudBad() {
-      if (!audioEnabled || !audioCtx) return;
-      const t = audioCtx.currentTime;
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      o.type = "sine";
-      o.frequency.setValueAtTime(150, t);
-      o.frequency.exponentialRampToValueAtTime(65, t + 0.14);
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.24, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-      o.connect(g).connect(audioCtx.destination);
-      o.start(t);
-      o.stop(t + 0.2);
-    }
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8b6a2a, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+sun.position.set(14, 18, 10);
+scene.add(sun);
 
-    document.getElementById("btnAudio").addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      ensureAudio();
-    });
+/* --------------------------- Audio (BG loop) --------------------------- */
+let audioCtx=null, audioEnabled=false;
+let bg=null;
+function ensureAudio(){
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==="suspended") audioCtx.resume();
+  audioEnabled=true;
+  document.getElementById("audioState").textContent="Səs aktivdir";
+  startBG();
+}
+function startBG(){
+  if(!audioEnabled || !audioCtx || bg) return;
 
-    // ---------- Player (invisible collider only) ----------
-    const player = {
-      y: 0.9,
-      standY: 0.9,
-      crouchY: 0.55,
-      radius: 0.52,
-      isCrouching: false,
-      isJumping: false,
-      vy: 0,
-      jumpVel: 6.9,
-      gravity: 18.2,
-      getMinY() { return this.y - this.radius; }
-    };
+  // rumble: low sine + noise filtered
+  const rum = audioCtx.createOscillator();
+  rum.type="sine";
+  rum.frequency.value=42;
 
-    // ---------- Camera shake ----------
-    let shakeTime = 0;
-    let shakePow = 0.0;
+  const rumG = audioCtx.createGain();
+  rumG.gain.value=0.05;
 
-    function kickShake(power = 1.0) {
-      shakeTime = 0.28;
-      shakePow = Math.min(1.2, Math.max(shakePow, power));
-    }
+  const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate*1.5, audioCtx.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*0.18;
 
-    function updateCamera(dt) {
-      const desiredY = player.y + 3.8;
-      camera.position.y += (desiredY - camera.position.y) * 0.08;
+  const noise = audioCtx.createBufferSource();
+  noise.buffer=noiseBuf;
+  noise.loop=true;
 
-      if (shakeTime > 0) {
-        shakeTime -= dt;
-        const s = Math.max(0, shakeTime / 0.28);
-        const amp = 0.16 * s * shakePow;
-        camera.position.x = (Math.random() - 0.5) * amp;
-        camera.position.y += (Math.random() - 0.5) * amp;
-      } else {
-        camera.position.x *= 0.85;
-        shakePow *= 0.9;
-      }
+  const bp = audioCtx.createBiquadFilter();
+  bp.type="bandpass";
+  bp.frequency.value=280;
+  bp.Q.value=0.55;
 
-      camera.lookAt(0, player.y + 0.25, 0);
-    }
+  const nG = audioCtx.createGain();
+  nG.gain.value=0.06;
 
-    // ---------- Speed model (slow when not jumped) ----------
-    let baseSpeed = 10.6;
-    let speedFactor = 1.0;
-    let slowTimer = 0;
+  // tiny lfo movement
+  const lfo = audioCtx.createOscillator();
+  lfo.type="sine";
+  lfo.frequency.value=0.14;
+  const lfoG = audioCtx.createGain();
+  lfoG.gain.value=120;
+  lfo.connect(lfoG).connect(bp.frequency);
 
-    const statusEl = document.getElementById("status");
+  rum.connect(rumG).connect(audioCtx.destination);
+  noise.connect(bp).connect(nG).connect(audioCtx.destination);
 
-    function applySlow() {
-      speedFactor = Math.max(0.42, speedFactor * 0.6);
-      slowTimer = 0.6;
-      thudBad();
-      kickShake(1.0);
-      statusEl.textContent = "Çuxura düşdün! Sürət zəiflədi.";
-    }
+  rum.start();
+  noise.start();
+  lfo.start();
 
-    function recoverSpeed(dt) {
-      if (slowTimer > 0) {
-        slowTimer -= dt;
-        speedFactor += (1.0 - speedFactor) * 0.07;
-      } else {
-        speedFactor += (1.0 - speedFactor) * 0.02;
-      }
-      if (Math.abs(1.0 - speedFactor) < 0.003) {
-        speedFactor = 1.0;
-        statusEl.textContent = "Yaxşı! Davam et.";
-      }
-    }
+  bg={rum, rumG, noise, bp, nG, lfo};
+}
+function sfxJump(){
+  if(!audioEnabled || !audioCtx) return;
+  const t=audioCtx.currentTime;
+  const o=audioCtx.createOscillator();
+  const g=audioCtx.createGain();
+  o.type="square";
+  o.frequency.setValueAtTime(720,t);
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(0.10,t+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.12);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(t); o.stop(t+0.14);
+}
+document.getElementById("btnAudio").addEventListener("pointerdown",(e)=>{ e.preventDefault(); ensureAudio(); });
 
-    // ---------- Controls ----------
-    function jump() {
-      if (player.isJumping) return;
+/* --------------------------- World: desert + tracks --------------------------- */
+const world = new THREE.Group();
+scene.add(world);
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(140, 520),
+  new THREE.MeshStandardMaterial({ color:0xf3d998, roughness:0.98, metalness:0.0 })
+);
+ground.rotation.x=-Math.PI/2;
+ground.position.set(0,-0.01,-220);
+world.add(ground);
+
+// low-poly pyramids
+const pyrMat = new THREE.MeshStandardMaterial({ color:0xf0c978, roughness:0.98 });
+for(let i=0;i<9;i++){
+  const p = new THREE.Mesh(new THREE.ConeGeometry(6+Math.random()*6, 6+Math.random()*6, 4), pyrMat);
+  p.position.set((Math.random()<0.5?-1:1)*(18+Math.random()*45), 3, -80-Math.random()*360);
+  p.rotation.y=Math.random()*Math.PI;
+  world.add(p);
+}
+// cactus
+const cactusMat = new THREE.MeshStandardMaterial({ color:0x2f8d57, roughness:0.9 });
+for(let i=0;i<38;i++){
+  const c = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.16,1.2,8), cactusMat);
+  c.position.set((Math.random()<0.5?-1:1)*(8+Math.random()*28), 0.6, -30-Math.random()*420);
+  world.add(c);
+}
+
+// 3 lanes (like video)
+const LANES=[-3.2,0,3.2];
+const bed = new THREE.Mesh(
+  new THREE.BoxGeometry(12, 0.22, 520),
+  new THREE.MeshStandardMaterial({ color:0x2b2f36, roughness:0.95 })
+);
+bed.position.set(0,0.06,-220);
+world.add(bed);
+
+// blue center line like video
+const blueLine = new THREE.Mesh(
+  new THREE.BoxGeometry(0.05, 0.03, 520),
+  new THREE.MeshStandardMaterial({ color:0x1aa8ff, roughness:0.6, metalness:0.0 })
+);
+blueLine.position.set(0,0.16,-220);
+world.add(blueLine);
+
+// rails + sleepers
+const railMat = new THREE.MeshStandardMaterial({ color:0x4b4f56, roughness:0.55, metalness:0.2 });
+const sleeperMat = new THREE.MeshStandardMaterial({ color:0x5a3b2a, roughness:0.9 });
+
+function addRailsForLane(x){
+  const r1=new THREE.Mesh(new THREE.BoxGeometry(0.10,0.10,520), railMat);
+  const r2=new THREE.Mesh(new THREE.BoxGeometry(0.10,0.10,520), railMat);
+  r1.position.set(x-0.55,0.16,-220);
+  r2.position.set(x+0.55,0.16,-220);
+  world.add(r1,r2);
+}
+LANES.forEach(addRailsForLane);
+
+const sleeperGeo=new THREE.BoxGeometry(1.45,0.08,0.26);
+const sleeperCount=380;
+const sleepers=new THREE.InstancedMesh(sleeperGeo, sleeperMat, sleeperCount);
+sleepers.frustumCulled=false;
+const M=new THREE.Matrix4();
+for(let i=0;i<sleeperCount;i++){
+  const z=-10-i*1.35;
+  M.makeTranslation(0,0.10,z);
+  sleepers.setMatrixAt(i,M);
+}
+world.add(sleepers);
+
+/* --------------------------- Trains (long cars) --------------------------- */
+const trains=[];
+const trainBodyMat=new THREE.MeshStandardMaterial({ color:0x4f6d7a, roughness:0.75 });
+const trainRoofMat=new THREE.MeshStandardMaterial({ color:0x30424a, roughness:0.85 });
+const trainWinMat =new THREE.MeshStandardMaterial({ color:0xa6e1ff, roughness:0.35, metalness:0.10 });
+
+function makeTrain(){
+  const g=new THREE.Group();
+
+  const body=new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.1, 13.0), trainBodyMat);
+  body.position.y=1.05; g.add(body);
+
+  const roof=new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.26, 13.1), trainRoofMat);
+  roof.position.y=2.25; g.add(roof);
+
+  const win=new THREE.Mesh(new THREE.BoxGeometry(2.82, 0.62, 9.0), trainWinMat);
+  win.position.set(0,1.35,0); g.add(win);
+
+  // front nose
+  const nose=new THREE.Mesh(new THREE.BoxGeometry(2.7, 1.7, 0.40),
+    new THREE.MeshStandardMaterial({ color:0x232a31, roughness:0.95 }));
+  nose.position.set(0,0.95,6.55); g.add(nose);
+
+  g.userData = {
+    halfZ: 13.0/2,
+    topY: 2.25 + 0.26/2
+  };
+  return g;
+}
+
+let nextTrainZ=-32;
+function spawnTrain(){
+  const lane=Math.floor(Math.random()*3);
+  const t=makeTrain();
+  t.position.set(LANES[lane], 0, nextTrainZ);
+  world.add(t);
+  trains.push({
+    mesh:t, lane,
+    speedMul: 0.85 + Math.random()*0.25,
+    removed:false
+  });
+  nextTrainZ -= (30 + Math.random()*22);
+}
+for(let i=0;i<10;i++) spawnTrain();
+
+/* --------------------------- Player (invisible runner) --------------------------- */
+const player={
+  lane:1,
+  x:LANES[1],
+  y:1.05,
+  radius:0.45,
+  vy:0,
+  isJumping:false,
+  onTrain:null, // ref to train obj if standing on roof
+  gravity:21.0,
+  jumpVel:8.4
+};
+
+function laneX(i){ return LANES[i]; }
+function overlapTrain(train){
+  // player at z=0
+  const dz=Math.abs(train.mesh.position.z - 0);
+  return dz < (train.mesh.userData.halfZ + 0.65);
+}
+function trainTopY(train){ return train.mesh.userData.topY; }
+
+/* if lane change while on train:
+   - if adjacent lane has a train underfoot at that moment -> switch to it
+   - else -> fall (player.onTrain=null, start falling)
+*/
+function findTrainUnderPlayer(lane){
+  for(const t of trains){
+    if(t.removed) continue;
+    if(t.lane!==lane) continue;
+    if(!overlapTrain(t)) continue;
+    return t;
+  }
+  return null;
+}
+
+/* --------------------------- HUD progress like video --------------------------- */
+let level = 1;
+let goalM = 2200;
+let dist = 0;
+const barFill=document.getElementById("barFill");
+const lvlEl=document.getElementById("lvl");
+const goalEl=document.getElementById("goal");
+lvlEl.textContent = `LEVEL ${level}`;
+goalEl.textContent = `GOAL: ${goalM}m`;
+
+const hintCircle=document.getElementById("hintCircle");
+const hintTxt=document.getElementById("hintTxt");
+let hintTimer=2.5; // show at start
+
+function setHint(txt, icon){
+  hintTxt.textContent = txt;
+  hintCircle.textContent = icon;
+  hintTimer = 1.2;
+}
+
+/* --------------------------- Controls --------------------------- */
+let alive=true;
+const msgEl=document.getElementById("msg");
+
+function moveLane(dir){
+  if(!alive) return;
+  const oldLane=player.lane;
+  player.lane = Math.max(0, Math.min(2, player.lane+dir));
+  if(player.lane!==oldLane) setHint(dir>0?"RIGHT":"LEFT", dir>0?"➡️":"⬅️");
+
+  // if on a train, check if still supported
+  if(player.onTrain){
+    const under = findTrainUnderPlayer(player.lane);
+    if(under){
+      player.onTrain = under;
+    }else{
+      // start falling from roof (no jump impulse)
+      player.onTrain = null;
       player.isJumping = true;
-      player.vy = player.jumpVel;
+      player.vy = 0;
     }
-    function crouch(on) { player.isCrouching = on; }
+  }
+}
 
-    addEventListener("keydown", (e) => {
-      if (e.code === "ArrowUp" || e.code === "Space") {
-        ensureAudio();
-        jump();
-      } else if (e.code === "ArrowDown") {
-        crouch(true);
-      }
-    });
-    addEventListener("keyup", (e) => {
-      if (e.code === "ArrowDown") crouch(false);
-    });
+function jump(){
+  if(!alive) return;
+  if(player.isJumping) return;
+  player.isJumping=true;
+  player.vy=player.jumpVel;
+  player.onTrain=null;
+  setHint("JUMP","⬆️");
+  sfxJump();
+}
 
-    // Swipe
-    let touchStartY = null, touchStartX = null;
-    addEventListener("pointerdown", (e) => { touchStartY = e.clientY; touchStartX = e.clientX; }, { passive:true });
-    addEventListener("pointerup", (e) => {
-      if (touchStartY == null) return;
-      const dy = e.clientY - touchStartY;
-      const dx = e.clientX - touchStartX;
-      touchStartY = null; touchStartX = null;
+addEventListener("keydown",(e)=>{
+  if(e.code==="ArrowLeft"||e.code==="KeyA") moveLane(-1);
+  if(e.code==="ArrowRight"||e.code==="KeyD") moveLane(1);
+  if(e.code==="ArrowUp"||e.code==="Space"){ ensureAudio(); jump(); }
+  if(!alive && (e.code==="Enter"||e.code==="Space")) reset();
+});
 
-      if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 30) {
-        ensureAudio();
-        if (dy < 0) jump();
-        else {
-          crouch(true);
-          setTimeout(() => crouch(false), 240);
-        }
-      }
-    }, { passive:true });
+addEventListener("pointerdown",()=>{ if(!alive) reset(); }, {passive:true});
 
-    // ---------- Dust particles (on slow hit) ----------
-    const dustBursts = [];
-    const dustMat = new THREE.PointsMaterial({
-      color: 0xaab6c6,
-      size: 0.08,
-      transparent: true,
-      opacity: 0.7,
-      depthWrite: false
-    });
+// swipe
+let sx=null, sy=null;
+addEventListener("pointerdown",(e)=>{ sx=e.clientX; sy=e.clientY; }, {passive:true});
+addEventListener("pointerup",(e)=>{
+  if(sx==null) return;
+  const dx=e.clientX-sx, dy=e.clientY-sy;
+  sx=null; sy=null;
+  if(Math.abs(dx)<20 && Math.abs(dy)<20) return;
+  if(Math.abs(dx)>Math.abs(dy)) moveLane(dx>0?1:-1);
+  else if(dy<0){ ensureAudio(); jump(); }
+},{passive:true});
 
-    function spawnDustBurst(zAtPlayer = 0) {
-      const count = 80;
-      const pos = new Float32Array(count * 3);
-      const vel = new Float32Array(count * 3);
+/* --------------------------- Game loop --------------------------- */
+let baseSpeed=16.0;
+let last=performance.now();
 
-      for (let i = 0; i < count; i++) {
-        // spawn around center of road near player
-        const x = (Math.random() - 0.5) * 2.2;
-        const y = 0.06 + Math.random() * 0.08;
-        const z = zAtPlayer + (Math.random() - 0.5) * 0.4;
+function gameOver(){
+  alive=false;
+  msgEl.textContent="Uduzdun. Ekrana klik et -> restart";
+}
+function reset(){
+  alive=true;
+  msgEl.textContent="←/→ lane • ↑/Space jump • Qatarın üstünə düş, üstündə qaç.";
+  player.lane=1; player.x=LANES[1]; player.y=1.05; player.vy=0;
+  player.isJumping=false; player.onTrain=null;
+  baseSpeed=16.0;
+  dist=0;
+  // trains reset
+  for(const t of trains) world.remove(t.mesh);
+  trains.length=0;
+  nextTrainZ=-32;
+  for(let i=0;i<10;i++) spawnTrain();
+  setHint("JUMP","⬆️");
+}
 
-        pos[i*3+0] = x;
-        pos[i*3+1] = y;
-        pos[i*3+2] = z;
+function updateCamera(dt){
+  const targetX = laneX(player.lane);
+  player.x += (targetX - player.x)*0.18;
 
-        vel[i*3+0] = (Math.random() - 0.5) * 3.2;
-        vel[i*3+1] =  1.6 + Math.random() * 2.2;
-        vel[i*3+2] =  1.2 + Math.random() * 2.4;
-      }
+  camera.position.x += (player.x - camera.position.x)*0.10;
+  const desiredY = player.y + 4.2;
+  camera.position.y += (desiredY - camera.position.y)*0.08;
+  camera.lookAt(player.x, player.y+0.2, 0);
+}
 
-      const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+function step(dt){
+  // speed ramps like video
+  baseSpeed += 0.35*dt;
+  const speed = baseSpeed;
 
-      const pts = new THREE.Points(g, dustMat.clone());
-      pts.frustumCulled = false;
-      scene.add(pts);
+  // distance / progress
+  dist += speed*dt * 6.5; // scale to meters feel
+  const prog = Math.min(1, dist/goalM);
+  barFill.style.width = (8 + prog*92) + "%";
 
-      dustBursts.push({ pts, vel, life: 0.45 });
-    }
+  // hint fade
+  if(hintTimer>0){
+    hintTimer-=dt;
+    document.getElementById("centerHint").style.opacity = "1";
+  }else{
+    document.getElementById("centerHint").style.opacity = "0";
+  }
 
-    function updateDust(dt, forwardSpeed) {
-      for (let i = dustBursts.length - 1; i >= 0; i--) {
-        const b = dustBursts[i];
-        b.life -= dt;
+  // jump/fall physics
+  const groundY = 1.05;
 
-        const geom = b.pts.geometry;
-        const p = geom.getAttribute("position");
-        for (let k = 0; k < p.count; k++) {
-          // forward drift + gravity down
-          const ix = k*3;
-          b.vel[ix+1] -= 6.0 * dt;
+  if(player.isJumping){
+    player.vy -= player.gravity*dt;
+    player.y += player.vy*dt;
 
-          p.array[ix+0] += b.vel[ix+0] * dt;
-          p.array[ix+1] = Math.max(0.02, p.array[ix+1] + b.vel[ix+1] * dt);
-          p.array[ix+2] += (b.vel[ix+2] + forwardSpeed*0.18) * dt;
-        }
-        p.needsUpdate = true;
-
-        // fade
-        b.pts.material.opacity = Math.max(0, b.life / 0.45) * 0.7;
-
-        if (b.life <= 0) {
-          scene.remove(b.pts);
-          b.pts.geometry.dispose();
-          b.pts.material.dispose();
-          dustBursts.splice(i, 1);
-        }
-      }
-    }
-
-    // ---------- Potholes (realistic: rim + hole) ----------
-    const potholes = [];
-    const rimMat = new THREE.MeshStandardMaterial({ color: 0x2f3c4a, roughness: 0.98 });
-    const holeMat = new THREE.MeshStandardMaterial({ color: 0x0e141b, roughness: 1.0 });
-
-    function makePothole(width, depth, rimH, holeD) {
-      // Rim: jagged strip (slightly raised), Hole: dark plane slightly lower
-      const halfW = width/2;
-      const steps = 18;
-
-      const ptsFront = [];
-      const ptsBack = [];
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const x = -halfW + t * width;
-        ptsFront.push(new THREE.Vector2(x + (Math.random()-0.5)*0.38,  depth/2 + (Math.random()-0.5)*0.22));
-        ptsBack.push (new THREE.Vector2(x + (Math.random()-0.5)*0.38, -depth/2 + (Math.random()-0.5)*0.22));
-      }
-
-      const shape = new THREE.Shape();
-      shape.moveTo(ptsFront[0].x, ptsFront[0].y);
-      for (let i = 1; i < ptsFront.length; i++) shape.lineTo(ptsFront[i].x, ptsFront[i].y);
-      for (let i = ptsBack.length - 1; i >= 0; i--) shape.lineTo(ptsBack[i].x, ptsBack[i].y);
-      shape.closePath();
-
-      const rimGeo = new THREE.ExtrudeGeometry(shape, {
-        depth: rimH,
-        bevelEnabled: true,
-        bevelThickness: 0.03,
-        bevelSize: 0.06,
-        bevelSegments: 2
-      });
-      rimGeo.rotateX(-Math.PI/2);
-
-      const rim = new THREE.Mesh(rimGeo, rimMat);
-      rim.receiveShadow = true;
-
-      // Hole (dark depression)
-      const holeGeo = new THREE.PlaneGeometry(width*0.92, depth*0.78, 1, 1);
-      const hole = new THREE.Mesh(holeGeo, holeMat);
-      hole.rotation.x = -Math.PI/2;
-      hole.position.y = -holeD; // below road
-      hole.position.z = (Math.random()-0.5)*0.08;
-      rim.add(hole);
-
-      return { root: rim };
-    }
-
-    function spawnPothole(z) {
-      const width = ROAD_W - 1.2;                 // across whole road
-      const depth = 1.6 + Math.random()*1.8;      // along Z
-      const rimH  = 0.10 + Math.random()*0.06;    // slight raised edge
-      const holeD = 0.10 + Math.random()*0.08;    // depression depth
-
-      const { root } = makePothole(width, depth, rimH, holeD);
-      root.position.set(0, 0.02, z); // sits on road surface
-      scene.add(root);
-
-      // "required jump height" threshold: if player bottom is still near ground => punish.
-      // (Not using rim height; we treat it as "need to be in air" when overlapping)
-      potholes.push({
-        mesh: root,
-        depth,
-        needAirMin: 0.22,      // if player bottom <= this => considered not jumped
-        passed: false,
-        punished: false,
-        removed: false
-      });
-    }
-
-    // ---------- Trees (instanced both sides) ----------
-    const TREES = 180;
-    const trunkGeo = new THREE.CylinderGeometry(0.12, 0.16, 1.2, 8);
-    const crownGeo = new THREE.ConeGeometry(0.75, 1.6, 10);
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3a2b22, roughness: 0.95 });
-    const crownMat = new THREE.MeshStandardMaterial({ color: 0x1d3b26, roughness: 0.95 });
-
-    const trunkInst = new THREE.InstancedMesh(trunkGeo, trunkMat, TREES*2);
-    const crownInst = new THREE.InstancedMesh(crownGeo, crownMat, TREES*2);
-    trunkInst.frustumCulled = false;
-    crownInst.frustumCulled = false;
-    scene.add(trunkInst);
-    scene.add(crownInst);
-
-    const treeData = [];
-    const leftXBase = -ROAD_W/2 - 2.2;
-    const rightXBase = ROAD_W/2 + 2.2;
-
-    const _m = new THREE.Matrix4();
-    const _pos = new THREE.Vector3();
-    const _quat = new THREE.Quaternion();
-    const _scale = new THREE.Vector3();
-
-    function updateTreeInstances() {
-      for (let i = 0; i < treeData.length; i++) {
-        const t = treeData[i];
-
-        _pos.set(t.x, 0.6 * t.s, t.z);
-        _scale.set(1, t.s, 1);
-        _m.compose(_pos, _quat, _scale);
-        trunkInst.setMatrixAt(i, _m);
-
-        _pos.set(t.x, 1.8 * t.s, t.z);
-        _scale.set(1.0*t.s, 1.0*t.s, 1.0*t.s);
-        _m.compose(_pos, _quat, _scale);
-        crownInst.setMatrixAt(i, _m);
-      }
-      trunkInst.instanceMatrix.needsUpdate = true;
-      crownInst.instanceMatrix.needsUpdate = true;
-    }
-
-    function initTrees() {
-      treeData.length = 0;
-      const span = 250;
-      for (let i = 0; i < TREES; i++) {
-        treeData.push({ x: leftXBase  - Math.random()*3.8, z: -10 - Math.random()*span, s: 0.85 + Math.random()*0.55 });
-        treeData.push({ x: rightXBase + Math.random()*3.8, z: -10 - Math.random()*span, s: 0.85 + Math.random()*0.55 });
-      }
-      updateTreeInstances();
-    }
-
-    function moveTrees(dz) {
-      const recycleZ = camera.position.z + 18;
-      const farZ = -270;
-      for (const t of treeData) {
-        t.z += dz;
-        if (t.z > recycleZ) {
-          t.z = farZ - Math.random()*70;
-          t.s = 0.85 + Math.random()*0.55;
-          if (t.x < 0) t.x = leftXBase  - Math.random()*3.8;
-          else         t.x = rightXBase + Math.random()*3.8;
-        }
-      }
-      updateTreeInstances();
-    }
-
-    initTrees();
-
-    // ---------- Init potholes ----------
-    let nextSpawnZ = -18;
-    for (let i = 0; i < 10; i++) {
-      spawnPothole(nextSpawnZ);
-      nextSpawnZ -= (8 + Math.random()*9);
-    }
-
-    // ---------- Game loop ----------
-    let last = performance.now();
-
-    function step(dt) {
-      // crouch/stand smoothing (only affects camera feel)
-      const desiredY = player.isCrouching ? player.crouchY : player.standY;
-      player.y += (desiredY - player.y) * 0.18;
-
-      // jump physics
-      if (player.isJumping) {
-        player.vy -= player.gravity * dt;
-        player.y += player.vy * dt;
-        if (player.y <= desiredY) {
-          player.y = desiredY;
+    // landing check on train roofs (when falling)
+    if(player.vy<=0){
+      let landed=false;
+      const under = findTrainUnderPlayer(player.lane);
+      if(under){
+        const top = trainTopY(under);
+        if(player.y - player.radius <= top + 0.08 && player.y > top){
+          player.y = top + player.radius;
           player.vy = 0;
-          player.isJumping = false;
+          player.isJumping=false;
+          player.onTrain=under;
+          landed=true;
         }
       }
-
-      // speed
-      baseSpeed += 0.12 * dt;
-      recoverSpeed(dt);
-      const speed = baseSpeed * speedFactor;
-
-      // move potholes
-      for (const p of potholes) {
-        if (p.removed) continue;
-
-        p.mesh.position.z += speed * dt;
-        const z = p.mesh.position.z;
-        const halfDepth = p.depth / 2;
-
-        if (z > camera.position.z + 8) {
-          p.removed = true;
-          scene.remove(p.mesh);
-          continue;
-        }
-
-        // overlap at player z=0
-        const overlap = Math.abs(z - 0) < (halfDepth + 0.55);
-
-        if (overlap && !p.punished) {
-          // If player's bottom is too low => not jumped => slow + dust
-          if (player.getMinY() <= p.needAirMin) {
-            p.punished = true;
-            applySlow();
-            spawnDustBurst(0);
-          }
-        }
-
-        // success beep when passes player, if jumped
-        if (!p.passed && z > 0.22) {
-          p.passed = true;
-          const cleared = player.getMinY() > p.needAirMin + 0.12; // enough air at pass moment
-          if (cleared) {
-            statusEl.textContent = "Təmiz keçdin! 👍";
-            beepOk();
-          }
-        }
+      // land on ground
+      if(!landed && player.y<=groundY){
+        player.y=groundY;
+        player.vy=0;
+        player.isJumping=false;
+        player.onTrain=null;
       }
+    }
+  }else{
+    // standing: keep attached to train if still overlapping
+    if(player.onTrain && !player.onTrain.removed && overlapTrain(player.onTrain) && player.onTrain.lane===player.lane){
+      const top=trainTopY(player.onTrain);
+      player.y += (top + player.radius - player.y)*0.25;
+    }else{
+      player.onTrain=null;
+      player.y += (groundY - player.y)*0.18;
+    }
+  }
 
-      // spawn ahead
-      const farthestZ = potholes.reduce((minZ, p) => Math.min(minZ, p.mesh.position.z), 0);
-      while (nextSpawnZ > farthestZ - 95) {
-        nextSpawnZ -= (8 + Math.random()*10);
-        spawnPothole(nextSpawnZ);
-      }
+  // move trains towards player
+  for(const t of trains){
+    if(t.removed) continue;
+    const v = speed * t.speedMul;
+    t.mesh.position.z += v*dt;
 
-      // trees + dust
-      moveTrees(speed * dt);
-      updateDust(dt, speed);
-
-      updateCamera(dt);
+    // collision if train overlaps and player not on roof
+    if(alive && t.lane===player.lane && overlapTrain(t)){
+      const top=trainTopY(t);
+      const safeOnRoof = (player.y - player.radius) >= (top - 0.12);
+      if(!safeOnRoof) gameOver();
     }
 
-    function animate(now) {
-      const dt = Math.min(0.033, (now - last) / 1000);
-      last = now;
-
-      step(dt);
-      renderer.render(scene, camera);
-      requestAnimationFrame(animate);
+    // remove after passing
+    if(t.mesh.position.z > camera.position.z + 18){
+      t.removed=true;
+      world.remove(t.mesh);
     }
-    requestAnimationFrame(animate);
+  }
 
-    // Resize
-    addEventListener("resize", () => {
-      camera.aspect = innerWidth / innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(innerWidth, innerHeight);
-    });
-  </script>
+  // spawn more trains ahead
+  const farthestZ = trains.reduce((minZ, t)=>Math.min(minZ, t.mesh.position.z), 0);
+  while(nextTrainZ > farthestZ - 140) spawnTrain();
+
+  // compact array
+  for(let i=trains.length-1;i>=0;i--) if(trains[i].removed) trains.splice(i,1);
+
+  updateStreaks(speed);
+  updateCamera(dt);
+}
+
+function animate(now){
+  const dt = Math.min(0.033, (now-last)/1000);
+  last=now;
+  if(alive) step(dt);
+  renderer.render(scene,camera);
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+addEventListener("resize",()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
 </body>
 </html>
