@@ -3,45 +3,551 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Runner + Dog + Coins</title>
+  <title>Road + Potholes + Trees</title>
   <style>
-    html,body{margin:0;height:100%;overflow:hidden;background:#0b1020}
-    #ui{
-      position:fixed; top:12px; left:12px; z-index:2;
-      color:#fff; font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      font-weight:800; text-shadow:0 2px 10px rgba(0,0,0,.35);
-      user-select:none; line-height:1.25;
+    html, body { margin:0; height:100%; overflow:hidden; background:#0b0f14; }
+    #hud {
+      position:fixed; left:12px; top:12px; right:12px;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      color:#e8eef7; font-size:14px; line-height:1.35;
+      display:flex; gap:12px; align-items:flex-start; justify-content:space-between;
+      pointer-events:none;
     }
-    #barWrap{
-      margin-top:10px; width:min(320px, 76vw); height:10px;
-      background:rgba(255,255,255,.15); border-radius:999px; overflow:hidden;
-      box-shadow:0 6px 20px rgba(0,0,0,.25);
-    }
-    #bar{height:100%; width:0%; background:rgba(255,255,255,.9)}
-    #msg{margin-top:10px;font-weight:900}
-    #hint{
-      position:fixed; left:50%; transform:translateX(-50%);
-      bottom:16px; z-index:2;
-      padding:10px 14px; border-radius:999px;
-      background:rgba(255,255,255,.10); color:#fff; font-family:system-ui;
+    .panel {
+      background: rgba(0,0,0,.35);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 12px;
+      padding: 10px 12px;
       backdrop-filter: blur(6px);
-      text-align:center;
-      white-space:nowrap;
+      box-shadow: 0 8px 24px rgba(0,0,0,.35);
+      max-width: 560px;
     }
+    #btnAudio {
+      pointer-events:auto;
+      cursor:pointer;
+      user-select:none;
+      display:inline-flex; align-items:center; gap:8px;
+      padding:10px 12px; border-radius:12px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.14);
+    }
+    #btnAudio:active { transform: translateY(1px); }
+    #status { margin-top: 6px; opacity: .9; }
+    canvas { display:block; }
   </style>
 </head>
 <body>
-  <div id="ui">
-    <div id="goalText">GOAL: 2200m</div>
-    <div id="distText">0m</div>
-    <div id="scoreText">SCORE: 0</div>
-    <div id="speedText">SPEED: 0.0</div>
-    <div id="barWrap"><div id="bar"></div></div>
-    <div id="msg"></div>
+  <div id="hud">
+    <div class="panel">
+      <div><b>Kontrol</b>: ↑/Swipe up = tullan • ↓/Swipe down = əyil • ↓ burax = qalx</div>
+      <div id="status">Çuxura (yamaya) tullanıb keçməsən sürət zəifləyəcək.</div>
+    </div>
+    <div id="btnAudio" class="panel" title="Mobil brauzerdə səs üçün lazımdır">
+      🔊 <span id="audioState">Səsi aktiv et</span>
+    </div>
   </div>
 
-  <div id="hint">Sağa/Sola: swipe ◀▶ &nbsp;&nbsp; Sürət: swipe ▲▼</div>
+  <script type="module">
+    import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 
-  <script type="module" src="./main.js"></script>
+    // ---------- Renderer / Scene ----------
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x0b0f14, 14, 110);
+
+    const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 260);
+    camera.position.set(0, 4.7, 10);
+    camera.lookAt(0, 1.1, 0);
+
+    scene.add(new THREE.HemisphereLight(0xbdd8ff, 0x141821, 0.85));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.85);
+    dir.position.set(10, 12, 8);
+    scene.add(dir);
+
+    // ---------- Road ----------
+    const ROAD_W = 14;
+    const roadGeo = new THREE.PlaneGeometry(ROAD_W, 380, 1, 1);
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x141b24, roughness: 0.97, metalness: 0.0 });
+    const road = new THREE.Mesh(roadGeo, roadMat);
+    road.rotation.x = -Math.PI / 2;
+    road.position.z = -160;
+    scene.add(road);
+
+    const lineMat = new THREE.MeshStandardMaterial({ color: 0x26384d, roughness: 0.85 });
+    function addLine(x) {
+      const g = new THREE.BoxGeometry(0.08, 0.02, 340);
+      const m = new THREE.Mesh(g, lineMat);
+      m.position.set(x, 0.011, -160);
+      scene.add(m);
+    }
+    addLine(-ROAD_W/2 + 0.6);
+    addLine( ROAD_W/2 - 0.6);
+
+    // ---------- Audio ----------
+    let audioCtx = null;
+    let audioEnabled = false;
+
+    function ensureAudio() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      audioEnabled = true;
+      document.getElementById("audioState").textContent = "Səs aktivdir";
+    }
+
+    function beepOk() {
+      if (!audioEnabled || !audioCtx) return;
+      const t = audioCtx.currentTime;
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = "square";
+      o.frequency.setValueAtTime(760, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t);
+      o.stop(t + 0.14);
+    }
+
+    function thudBad() {
+      if (!audioEnabled || !audioCtx) return;
+      const t = audioCtx.currentTime;
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = "sine";
+      o.frequency.setValueAtTime(150, t);
+      o.frequency.exponentialRampToValueAtTime(65, t + 0.14);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.24, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t);
+      o.stop(t + 0.2);
+    }
+
+    document.getElementById("btnAudio").addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      ensureAudio();
+    });
+
+    // ---------- Player (invisible collider only) ----------
+    const player = {
+      y: 0.9,
+      standY: 0.9,
+      crouchY: 0.55,
+      radius: 0.52,
+      isCrouching: false,
+      isJumping: false,
+      vy: 0,
+      jumpVel: 6.9,
+      gravity: 18.2,
+      getMinY() { return this.y - this.radius; }
+    };
+
+    // ---------- Camera shake ----------
+    let shakeTime = 0;
+    let shakePow = 0.0;
+
+    function kickShake(power = 1.0) {
+      shakeTime = 0.28;
+      shakePow = Math.min(1.2, Math.max(shakePow, power));
+    }
+
+    function updateCamera(dt) {
+      const desiredY = player.y + 3.8;
+      camera.position.y += (desiredY - camera.position.y) * 0.08;
+
+      if (shakeTime > 0) {
+        shakeTime -= dt;
+        const s = Math.max(0, shakeTime / 0.28);
+        const amp = 0.16 * s * shakePow;
+        camera.position.x = (Math.random() - 0.5) * amp;
+        camera.position.y += (Math.random() - 0.5) * amp;
+      } else {
+        camera.position.x *= 0.85;
+        shakePow *= 0.9;
+      }
+
+      camera.lookAt(0, player.y + 0.25, 0);
+    }
+
+    // ---------- Speed model (slow when not jumped) ----------
+    let baseSpeed = 10.6;
+    let speedFactor = 1.0;
+    let slowTimer = 0;
+
+    const statusEl = document.getElementById("status");
+
+    function applySlow() {
+      speedFactor = Math.max(0.42, speedFactor * 0.6);
+      slowTimer = 0.6;
+      thudBad();
+      kickShake(1.0);
+      statusEl.textContent = "Çuxura düşdün! Sürət zəiflədi.";
+    }
+
+    function recoverSpeed(dt) {
+      if (slowTimer > 0) {
+        slowTimer -= dt;
+        speedFactor += (1.0 - speedFactor) * 0.07;
+      } else {
+        speedFactor += (1.0 - speedFactor) * 0.02;
+      }
+      if (Math.abs(1.0 - speedFactor) < 0.003) {
+        speedFactor = 1.0;
+        statusEl.textContent = "Yaxşı! Davam et.";
+      }
+    }
+
+    // ---------- Controls ----------
+    function jump() {
+      if (player.isJumping) return;
+      player.isJumping = true;
+      player.vy = player.jumpVel;
+    }
+    function crouch(on) { player.isCrouching = on; }
+
+    addEventListener("keydown", (e) => {
+      if (e.code === "ArrowUp" || e.code === "Space") {
+        ensureAudio();
+        jump();
+      } else if (e.code === "ArrowDown") {
+        crouch(true);
+      }
+    });
+    addEventListener("keyup", (e) => {
+      if (e.code === "ArrowDown") crouch(false);
+    });
+
+    // Swipe
+    let touchStartY = null, touchStartX = null;
+    addEventListener("pointerdown", (e) => { touchStartY = e.clientY; touchStartX = e.clientX; }, { passive:true });
+    addEventListener("pointerup", (e) => {
+      if (touchStartY == null) return;
+      const dy = e.clientY - touchStartY;
+      const dx = e.clientX - touchStartX;
+      touchStartY = null; touchStartX = null;
+
+      if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 30) {
+        ensureAudio();
+        if (dy < 0) jump();
+        else {
+          crouch(true);
+          setTimeout(() => crouch(false), 240);
+        }
+      }
+    }, { passive:true });
+
+    // ---------- Dust particles (on slow hit) ----------
+    const dustBursts = [];
+    const dustMat = new THREE.PointsMaterial({
+      color: 0xaab6c6,
+      size: 0.08,
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: false
+    });
+
+    function spawnDustBurst(zAtPlayer = 0) {
+      const count = 80;
+      const pos = new Float32Array(count * 3);
+      const vel = new Float32Array(count * 3);
+
+      for (let i = 0; i < count; i++) {
+        // spawn around center of road near player
+        const x = (Math.random() - 0.5) * 2.2;
+        const y = 0.06 + Math.random() * 0.08;
+        const z = zAtPlayer + (Math.random() - 0.5) * 0.4;
+
+        pos[i*3+0] = x;
+        pos[i*3+1] = y;
+        pos[i*3+2] = z;
+
+        vel[i*3+0] = (Math.random() - 0.5) * 3.2;
+        vel[i*3+1] =  1.6 + Math.random() * 2.2;
+        vel[i*3+2] =  1.2 + Math.random() * 2.4;
+      }
+
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+
+      const pts = new THREE.Points(g, dustMat.clone());
+      pts.frustumCulled = false;
+      scene.add(pts);
+
+      dustBursts.push({ pts, vel, life: 0.45 });
+    }
+
+    function updateDust(dt, forwardSpeed) {
+      for (let i = dustBursts.length - 1; i >= 0; i--) {
+        const b = dustBursts[i];
+        b.life -= dt;
+
+        const geom = b.pts.geometry;
+        const p = geom.getAttribute("position");
+        for (let k = 0; k < p.count; k++) {
+          // forward drift + gravity down
+          const ix = k*3;
+          b.vel[ix+1] -= 6.0 * dt;
+
+          p.array[ix+0] += b.vel[ix+0] * dt;
+          p.array[ix+1] = Math.max(0.02, p.array[ix+1] + b.vel[ix+1] * dt);
+          p.array[ix+2] += (b.vel[ix+2] + forwardSpeed*0.18) * dt;
+        }
+        p.needsUpdate = true;
+
+        // fade
+        b.pts.material.opacity = Math.max(0, b.life / 0.45) * 0.7;
+
+        if (b.life <= 0) {
+          scene.remove(b.pts);
+          b.pts.geometry.dispose();
+          b.pts.material.dispose();
+          dustBursts.splice(i, 1);
+        }
+      }
+    }
+
+    // ---------- Potholes (realistic: rim + hole) ----------
+    const potholes = [];
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0x2f3c4a, roughness: 0.98 });
+    const holeMat = new THREE.MeshStandardMaterial({ color: 0x0e141b, roughness: 1.0 });
+
+    function makePothole(width, depth, rimH, holeD) {
+      // Rim: jagged strip (slightly raised), Hole: dark plane slightly lower
+      const halfW = width/2;
+      const steps = 18;
+
+      const ptsFront = [];
+      const ptsBack = [];
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = -halfW + t * width;
+        ptsFront.push(new THREE.Vector2(x + (Math.random()-0.5)*0.38,  depth/2 + (Math.random()-0.5)*0.22));
+        ptsBack.push (new THREE.Vector2(x + (Math.random()-0.5)*0.38, -depth/2 + (Math.random()-0.5)*0.22));
+      }
+
+      const shape = new THREE.Shape();
+      shape.moveTo(ptsFront[0].x, ptsFront[0].y);
+      for (let i = 1; i < ptsFront.length; i++) shape.lineTo(ptsFront[i].x, ptsFront[i].y);
+      for (let i = ptsBack.length - 1; i >= 0; i--) shape.lineTo(ptsBack[i].x, ptsBack[i].y);
+      shape.closePath();
+
+      const rimGeo = new THREE.ExtrudeGeometry(shape, {
+        depth: rimH,
+        bevelEnabled: true,
+        bevelThickness: 0.03,
+        bevelSize: 0.06,
+        bevelSegments: 2
+      });
+      rimGeo.rotateX(-Math.PI/2);
+
+      const rim = new THREE.Mesh(rimGeo, rimMat);
+      rim.receiveShadow = true;
+
+      // Hole (dark depression)
+      const holeGeo = new THREE.PlaneGeometry(width*0.92, depth*0.78, 1, 1);
+      const hole = new THREE.Mesh(holeGeo, holeMat);
+      hole.rotation.x = -Math.PI/2;
+      hole.position.y = -holeD; // below road
+      hole.position.z = (Math.random()-0.5)*0.08;
+      rim.add(hole);
+
+      return { root: rim };
+    }
+
+    function spawnPothole(z) {
+      const width = ROAD_W - 1.2;                 // across whole road
+      const depth = 1.6 + Math.random()*1.8;      // along Z
+      const rimH  = 0.10 + Math.random()*0.06;    // slight raised edge
+      const holeD = 0.10 + Math.random()*0.08;    // depression depth
+
+      const { root } = makePothole(width, depth, rimH, holeD);
+      root.position.set(0, 0.02, z); // sits on road surface
+      scene.add(root);
+
+      // "required jump height" threshold: if player bottom is still near ground => punish.
+      // (Not using rim height; we treat it as "need to be in air" when overlapping)
+      potholes.push({
+        mesh: root,
+        depth,
+        needAirMin: 0.22,      // if player bottom <= this => considered not jumped
+        passed: false,
+        punished: false,
+        removed: false
+      });
+    }
+
+    // ---------- Trees (instanced both sides) ----------
+    const TREES = 180;
+    const trunkGeo = new THREE.CylinderGeometry(0.12, 0.16, 1.2, 8);
+    const crownGeo = new THREE.ConeGeometry(0.75, 1.6, 10);
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3a2b22, roughness: 0.95 });
+    const crownMat = new THREE.MeshStandardMaterial({ color: 0x1d3b26, roughness: 0.95 });
+
+    const trunkInst = new THREE.InstancedMesh(trunkGeo, trunkMat, TREES*2);
+    const crownInst = new THREE.InstancedMesh(crownGeo, crownMat, TREES*2);
+    trunkInst.frustumCulled = false;
+    crownInst.frustumCulled = false;
+    scene.add(trunkInst);
+    scene.add(crownInst);
+
+    const treeData = [];
+    const leftXBase = -ROAD_W/2 - 2.2;
+    const rightXBase = ROAD_W/2 + 2.2;
+
+    const _m = new THREE.Matrix4();
+    const _pos = new THREE.Vector3();
+    const _quat = new THREE.Quaternion();
+    const _scale = new THREE.Vector3();
+
+    function updateTreeInstances() {
+      for (let i = 0; i < treeData.length; i++) {
+        const t = treeData[i];
+
+        _pos.set(t.x, 0.6 * t.s, t.z);
+        _scale.set(1, t.s, 1);
+        _m.compose(_pos, _quat, _scale);
+        trunkInst.setMatrixAt(i, _m);
+
+        _pos.set(t.x, 1.8 * t.s, t.z);
+        _scale.set(1.0*t.s, 1.0*t.s, 1.0*t.s);
+        _m.compose(_pos, _quat, _scale);
+        crownInst.setMatrixAt(i, _m);
+      }
+      trunkInst.instanceMatrix.needsUpdate = true;
+      crownInst.instanceMatrix.needsUpdate = true;
+    }
+
+    function initTrees() {
+      treeData.length = 0;
+      const span = 250;
+      for (let i = 0; i < TREES; i++) {
+        treeData.push({ x: leftXBase  - Math.random()*3.8, z: -10 - Math.random()*span, s: 0.85 + Math.random()*0.55 });
+        treeData.push({ x: rightXBase + Math.random()*3.8, z: -10 - Math.random()*span, s: 0.85 + Math.random()*0.55 });
+      }
+      updateTreeInstances();
+    }
+
+    function moveTrees(dz) {
+      const recycleZ = camera.position.z + 18;
+      const farZ = -270;
+      for (const t of treeData) {
+        t.z += dz;
+        if (t.z > recycleZ) {
+          t.z = farZ - Math.random()*70;
+          t.s = 0.85 + Math.random()*0.55;
+          if (t.x < 0) t.x = leftXBase  - Math.random()*3.8;
+          else         t.x = rightXBase + Math.random()*3.8;
+        }
+      }
+      updateTreeInstances();
+    }
+
+    initTrees();
+
+    // ---------- Init potholes ----------
+    let nextSpawnZ = -18;
+    for (let i = 0; i < 10; i++) {
+      spawnPothole(nextSpawnZ);
+      nextSpawnZ -= (8 + Math.random()*9);
+    }
+
+    // ---------- Game loop ----------
+    let last = performance.now();
+
+    function step(dt) {
+      // crouch/stand smoothing (only affects camera feel)
+      const desiredY = player.isCrouching ? player.crouchY : player.standY;
+      player.y += (desiredY - player.y) * 0.18;
+
+      // jump physics
+      if (player.isJumping) {
+        player.vy -= player.gravity * dt;
+        player.y += player.vy * dt;
+        if (player.y <= desiredY) {
+          player.y = desiredY;
+          player.vy = 0;
+          player.isJumping = false;
+        }
+      }
+
+      // speed
+      baseSpeed += 0.12 * dt;
+      recoverSpeed(dt);
+      const speed = baseSpeed * speedFactor;
+
+      // move potholes
+      for (const p of potholes) {
+        if (p.removed) continue;
+
+        p.mesh.position.z += speed * dt;
+        const z = p.mesh.position.z;
+        const halfDepth = p.depth / 2;
+
+        if (z > camera.position.z + 8) {
+          p.removed = true;
+          scene.remove(p.mesh);
+          continue;
+        }
+
+        // overlap at player z=0
+        const overlap = Math.abs(z - 0) < (halfDepth + 0.55);
+
+        if (overlap && !p.punished) {
+          // If player's bottom is too low => not jumped => slow + dust
+          if (player.getMinY() <= p.needAirMin) {
+            p.punished = true;
+            applySlow();
+            spawnDustBurst(0);
+          }
+        }
+
+        // success beep when passes player, if jumped
+        if (!p.passed && z > 0.22) {
+          p.passed = true;
+          const cleared = player.getMinY() > p.needAirMin + 0.12; // enough air at pass moment
+          if (cleared) {
+            statusEl.textContent = "Təmiz keçdin! 👍";
+            beepOk();
+          }
+        }
+      }
+
+      // spawn ahead
+      const farthestZ = potholes.reduce((minZ, p) => Math.min(minZ, p.mesh.position.z), 0);
+      while (nextSpawnZ > farthestZ - 95) {
+        nextSpawnZ -= (8 + Math.random()*10);
+        spawnPothole(nextSpawnZ);
+      }
+
+      // trees + dust
+      moveTrees(speed * dt);
+      updateDust(dt, speed);
+
+      updateCamera(dt);
+    }
+
+    function animate(now) {
+      const dt = Math.min(0.033, (now - last) / 1000);
+      last = now;
+
+      step(dt);
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    requestAnimationFrame(animate);
+
+    // Resize
+    addEventListener("resize", () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+  </script>
 </body>
 </html>
